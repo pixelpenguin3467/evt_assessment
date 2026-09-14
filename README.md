@@ -24,9 +24,8 @@ That will:
 
 1. Check Docker; download kind and kubectl into `.tools/` if missing
 2. Create a kind Cluster named `evt` (or reuse it if it already exists)
-3. Build the Frontend and Backend images and load them into the Cluster
-4. Apply the App manifests
-5. Print `http://127.0.0.1:8080` for the Frontend
+3. Apply the App manifests; the node **pulls** the public Hub images
+4. Print `http://127.0.0.1:8080` for the Frontend
 
 Open that URL. The page is the Frontend; the status line is an HTTP GET from the Frontend container to `http://backend/` (the in-cluster DNS name of the Backend Service).
 
@@ -60,17 +59,27 @@ kind brings a working Cluster with its defaults. This repo does **not** install 
 
 The Frontend Service is a NodePort (`30080`) mapped to host port `8080` in `kind/cluster.yaml` so you can use a browser without `kubectl port-forward`.
 
-## Website image (brief item 2)
+## Website and Backend images (brief items 2–3)
 
-`apps/frontend` is a custom nginx image: static template (`html/`) plus a reverse proxy to the Backend. Stamp-out builds it as `evt-frontend:local` and loads it into kind.
+Custom nginx images, public on Docker Hub:
 
-To publish to Docker Hub (daemon running, `docker login` already done):
+- [pixelpenguin31/evt-frontend](https://hub.docker.com/r/pixelpenguin31/evt-frontend) (`latest`)
+- [pixelpenguin31/evt-backend](https://hub.docker.com/r/pixelpenguin31/evt-backend) (`latest`)
+
+Anyone can pull them without logging in:
 
 ```bash
-python3 scripts/publish.py frontend --registry docker.io/<your-dockerhub-user> --tag v1 --push
+docker pull docker.io/pixelpenguin31/evt-frontend:latest
+docker pull docker.io/pixelpenguin31/evt-backend:latest
 ```
 
-That does not change stamp-out. Kind still uses the local tag until the YAML image fields are pointed at the public name.
+Stamp-out applies those images (`imagePullPolicy: Always`). Kind pulls from Hub; it does not `kind load` a local build. The node needs network to Docker Hub.
+
+To republish after image changes (`docker login` first):
+
+```bash
+python3 scripts/publish.py all --registry docker.io/pixelpenguin31 --push
+```
 
 ## Manifests (brief item 4)
 
@@ -82,17 +91,7 @@ Optional extra — same App as a Helm chart:
 helm upgrade --install evt helm/evt-app
 ```
 
-Default values match the local kind tags (`pullPolicy: Never`). After Publish, override images, for example:
-
-```bash
-helm upgrade --install evt helm/evt-app \
-  --set frontend.image=docker.io/<user>/evt-frontend \
-  --set frontend.tag=v1 \
-  --set frontend.pullPolicy=IfNotPresent \
-  --set backend.image=docker.io/<user>/evt-backend \
-  --set backend.tag=v1 \
-  --set backend.pullPolicy=IfNotPresent
-```
+Default values are the same public Hub images as `k8s/`.
 
 Do not Helm-install on top of a Cluster that already has the YAML objects unless you are replacing that install.
 
@@ -107,7 +106,7 @@ kind/           kind Cluster config
 scripts/        Stamp-out (`cluster.py`) and Publish (`publish.py`)
 ```
 
-Images used by stamp-out are `evt-frontend:local` and `evt-backend:local` (`imagePullPolicy: Never`). Public registry publish is `scripts/publish.py` (needs Docker Hub user and `docker login`).
+Images in YAML/Helm are `docker.io/pixelpenguin31/evt-frontend:latest` and `docker.io/pixelpenguin31/evt-backend:latest` (`imagePullPolicy: Always`). `scripts/publish.py` rebuilds and pushes those tags.
 
 ## Repeatability
 

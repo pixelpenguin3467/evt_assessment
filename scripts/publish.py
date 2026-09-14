@@ -26,7 +26,7 @@ def main() -> None:
         required=True,
         help="Registry prefix, e.g. docker.io/myuser or public.ecr.aws/alias",
     )
-    parser.add_argument("--tag", default="v1")
+    parser.add_argument("--tag", default="latest")
     parser.add_argument(
         "--push",
         action="store_true",

@@ -3,3 +3,5 @@
 CONTEXT.md
 eval.md
 docs/
+__pycache__/
+*.pyc

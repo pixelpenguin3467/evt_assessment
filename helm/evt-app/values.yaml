@@ -1,9 +1,9 @@
 namespace: evt
 
 frontend:
-  image: evt-frontend
-  tag: local
-  pullPolicy: Never
+  image: docker.io/pixelpenguin31/evt-frontend
+  tag: latest
+  pullPolicy: Always
   resources:
     requests:
       cpu: 25m
@@ -13,9 +13,9 @@ frontend:
       memory: 64Mi
 
 backend:
-  image: evt-backend
-  tag: local
-  pullPolicy: Never
+  image: docker.io/pixelpenguin31/evt-backend
+  tag: latest
+  pullPolicy: Always
   resources:
     requests:
       cpu: 25m

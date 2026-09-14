@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: backend
-          image: evt-backend:local
-          imagePullPolicy: Never
+          image: docker.io/pixelpenguin31/evt-backend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
               name: http

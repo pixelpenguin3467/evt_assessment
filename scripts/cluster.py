@@ -211,13 +211,6 @@ def create_cluster() -> None:
     kubectl(["cluster-info"])
 
 
-def build_and_load() -> None:
-    run(["docker", "build", "-t", "evt-backend:local", str(ROOT / "apps" / "backend")])
-    run(["docker", "build", "-t", "evt-frontend:local", str(ROOT / "apps" / "frontend")])
-    run(["kind", "load", "docker-image", "evt-backend:local", "--name", CLUSTER])
-    run(["kind", "load", "docker-image", "evt-frontend:local", "--name", CLUSTER])
-
-
 def apply_app() -> None:
     kubectl(["apply", "-f", str(ROOT / "k8s")])
     kubectl(
@@ -227,7 +220,7 @@ def apply_app() -> None:
             "rollout",
             "status",
             "deployment/backend",
-            "--timeout=90s",
+            "--timeout=180s",
         ]
     )
     kubectl(
@@ -237,7 +230,7 @@ def apply_app() -> None:
             "rollout",
             "status",
             "deployment/frontend",
-            "--timeout=90s",
+            "--timeout=180s",
         ]
     )
 
@@ -247,7 +240,6 @@ def up() -> None:
     ensure_kind()
     ensure_kubectl()
     create_cluster()
-    build_and_load()
     apply_app()
     print()
     print("Frontend: http://127.0.0.1:8080")
