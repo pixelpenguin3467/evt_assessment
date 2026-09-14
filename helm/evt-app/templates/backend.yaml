@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: evt
+  namespace: {{ .Values.namespace }}
   labels:
     app: backend
 spec:
@@ -17,24 +17,19 @@ spec:
     spec:
       containers:
         - name: backend
-          image: evt-backend:local
-          imagePullPolicy: Never
+          image: "{{ .Values.backend.image }}:{{ .Values.backend.tag }}"
+          imagePullPolicy: {{ .Values.backend.pullPolicy }}
           ports:
             - containerPort: 80
               name: http
           resources:
-            requests:
-              cpu: 25m
-              memory: 32Mi
-            limits:
-              cpu: 100m
-              memory: 64Mi
+            {{- toYaml .Values.backend.resources | nindent 12 }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: backend
-  namespace: evt
+  namespace: {{ .Values.namespace }}
 spec:
   selector:
     app: backend

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: evt
+  namespace: {{ .Values.namespace }}
   labels:
     app: frontend
 spec:
@@ -17,24 +17,19 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: evt-frontend:local
-          imagePullPolicy: Never
+          image: "{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
+          imagePullPolicy: {{ .Values.frontend.pullPolicy }}
           ports:
             - containerPort: 80
               name: http
           resources:
-            requests:
-              cpu: 25m
-              memory: 32Mi
-            limits:
-              cpu: 100m
-              memory: 64Mi
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: frontend
-  namespace: evt
+  namespace: {{ .Values.namespace }}
 spec:
   type: NodePort
   selector:
@@ -43,4 +38,4 @@ spec:
     - name: http
       port: 80
       targetPort: http
-      nodePort: 30080
+      nodePort: {{ .Values.service.nodePort }}

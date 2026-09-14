@@ -1,0 +1,37 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background: #f6f4ef;
+}
+
+body {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  color: #5c5c5c;
+}
+
+h1,
+h2 {
+  font-weight: 600;
+}
+
+code,
+#backend {
+  font-family: ui-monospace, monospace;
+}
+
+#backend {
+  background: #fff;
+  border: 1px solid #ddd;
+  padding: 0.75rem 1rem;
+}
