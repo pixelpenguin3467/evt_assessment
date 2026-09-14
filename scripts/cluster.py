@@ -235,16 +235,48 @@ def apply_app() -> None:
     )
 
 
-def up() -> None:
+def ensure_helm() -> None:
+    if shutil.which("helm"):
+        return
+    die(
+        "Helm is required for this command. Install the Helm CLI: "
+        "https://helm.sh/docs/intro/install/"
+    )
+
+
+def apply_helm() -> None:
+    run(
+        [
+            "helm",
+            "upgrade",
+            "--install",
+            "evt",
+            str(ROOT / "helm" / "evt-app"),
+            "--wait",
+            "--timeout",
+            "3m",
+        ]
+    )
+
+
+def up(*, use_helm: bool) -> None:
     ensure_engine()
     ensure_kind()
     ensure_kubectl()
+    if use_helm:
+        ensure_helm()
     create_cluster()
-    apply_app()
+    if use_helm:
+        apply_helm()
+    else:
+        apply_app()
     print()
     print("Frontend: http://127.0.0.1:8080")
     print(f"kubectl context: {KUBE_CONTEXT}")
-    print(f"Re-apply manifests: kubectl --context {KUBE_CONTEXT} apply -f k8s")
+    if use_helm:
+        print("App installed with Helm release 'evt'. Re-apply: python3 scripts/cluster.py helm")
+    else:
+        print(f"Re-apply manifests: kubectl --context {KUBE_CONTEXT} apply -f k8s")
 
 
 def down() -> None:
@@ -272,11 +304,31 @@ def apply() -> None:
     apply_app()
 
 
+def helm_cmd() -> None:
+    ensure_kind()
+    ensure_kubectl()
+    ensure_helm()
+    require_cluster()
+    export_kubeconfig()
+    apply_helm()
+
+
 def main() -> None:
-    cmds = {"up": up, "down": down, "status": status, "apply": apply}
-    if len(sys.argv) != 2 or sys.argv[1] not in cmds:
-        die(f"Usage: {sys.argv[0]} <up|down|status|apply>")
-    cmds[sys.argv[1]]()
+    args = sys.argv[1:]
+    if args == ["up"]:
+        up(use_helm=False)
+    elif args == ["up", "--helm"]:
+        up(use_helm=True)
+    elif args == ["down"]:
+        down()
+    elif args == ["status"]:
+        status()
+    elif args == ["apply"]:
+        apply()
+    elif args == ["helm"]:
+        helm_cmd()
+    else:
+        die(f"Usage: {sys.argv[0]} <up [--helm]|down|status|apply|helm>")
 
 
 if __name__ == "__main__":

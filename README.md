@@ -83,17 +83,30 @@ python3 scripts/publish.py all --registry docker.io/pixelpenguin31 --push
 
 ## Manifests (brief item 4)
 
-Stamp-out applies raw YAML in `k8s/` (`kubectl apply -f k8s`). That is the supported install path. Frontend and Backend containers set CPU/memory **requests** (25m / 32Mi) and **limits** (100m / 64Mi) so a noisy neighbor cannot eat the kind node. The Helm chart uses the same values.
+YAML (`k8s/`) is the default App install. Helm (`helm/evt-app`) is the extra path. **Use one or the other**, not both, on the same Cluster.
 
-Optional extra — same App as a Helm chart:
+Stamp-out with YAML:
 
 ```bash
-helm upgrade --install evt helm/evt-app
+python3 scripts/cluster.py up
 ```
 
-Default values are the same public Hub images as `k8s/`.
+Stamp-out with Helm (Helm CLI required):
 
-Do not Helm-install on top of a Cluster that already has the YAML objects unless you are replacing that install.
+```bash
+python3 scripts/cluster.py up --helm
+```
+
+On an existing Cluster:
+
+```bash
+python3 scripts/cluster.py apply   # YAML
+python3 scripts/cluster.py helm    # Helm release "evt"
+```
+
+Or by hand: `helm upgrade --install evt ./helm/evt-app --wait`
+
+Frontend and Backend set CPU/memory **requests** (25m / 32Mi) and **limits** (100m / 64Mi). Chart values match `k8s/`. `helm lint ./helm/evt-app` is clean. `helm uninstall evt` removes the App; `python3 scripts/cluster.py down` removes the Cluster.
 
 ## Layout
 

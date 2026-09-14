@@ -1,0 +1,4 @@
+1. Frontend: http://127.0.0.1:8080 (kind maps NodePort 30080)
+2. kubectl --context kind-evt --namespace {{ .Values.namespace }} get pods,svc
+3. Uninstall the App: helm uninstall {{ .Release.Name }}
+   Tear down the Cluster: python3 scripts/cluster.py down
