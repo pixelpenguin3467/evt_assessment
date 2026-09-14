@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EVT Frontend</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      #backend {
+        font-family: ui-monospace, monospace;
+        background: #f4f4f4;
+        padding: 0.75rem 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>EVT Frontend</h1>
+    <p>
+      This page is served by the Frontend. The status below is an HTTP GET from
+      the Frontend container to the Backend Service via in-cluster DNS
+      (<code>http://backend/</code>).
+    </p>
+    <p id="backend">Checking backend…</p>
+    <script>
+      fetch("/api/backend")
+        .then((res) => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.text();
+        })
+        .then((text) => {
+          document.getElementById("backend").textContent = text.trim();
+        })
+        .catch((err) => {
+          document.getElementById("backend").textContent =
+            "Backend request failed: " + err;
+        });
+    </script>
+  </body>
+</html>
