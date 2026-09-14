@@ -16,15 +16,25 @@ spec:
       labels:
         app: frontend
     spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: frontend
           image: "{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}"
           imagePullPolicy: {{ .Values.frontend.pullPolicy }}
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
+            - containerPort: 8443
+              name: https
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- toYaml .Values.tmpMounts | nindent 12 }}
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
+      volumes:
+        {{- toYaml .Values.tmpVolumes | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service
@@ -43,3 +53,7 @@ spec:
       port: 80
       targetPort: http
       nodePort: {{ .Values.service.nodePort }}
+    - name: https
+      port: 443
+      targetPort: https
+      nodePort: {{ .Values.service.httpsNodePort }}

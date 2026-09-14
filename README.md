@@ -25,9 +25,11 @@ That will:
 1. Check Docker; download kind and kubectl into `.tools/` if missing
 2. Create a kind Cluster named `evt` (or reuse it if it already exists)
 3. Apply the App manifests; the node **pulls** the public Hub images
-4. Print `http://127.0.0.1:8080` for the Frontend
+4. Print `http://127.0.0.1:8080` (HTTP) and `https://127.0.0.1:8443` (HTTPS, self-signed)
 
-Open that URL. The page is the Frontend; the status line is an HTTP GET from the Frontend container to `http://backend/` (the in-cluster DNS name of the Backend Service).
+Open the HTTP URL for the easy path. HTTPS uses a **self-signed** cert generated in the Frontend Pod at start (no private key in git or the image). Browsers will warn; `curl -k https://127.0.0.1:8443` is expected. Backend status is filled in by nginx (SSI) with an HTTP GET to `http://backend/` in-cluster — not a browser `fetch`, which fails on some browsers against a self-signed origin.
+
+If the Cluster already existed before HTTPS port mapping was added, `down` then `up` so kind picks up host port 8443.
 
 kubeconfig is merged into the default file (`~/.kube/config`) as context `kind-evt`. After `up`:
 
@@ -57,7 +59,22 @@ kind brings a working Cluster with its defaults. This repo does **not** install 
 | **CoreDNS** | In-cluster DNS (`backend.evt.svc.cluster.local`) |
 | **kind-control-plane** | Single node (control plane + workloads) |
 
-The Frontend Service is a NodePort (`30080`) mapped to host port `8080` in `kind/cluster.yaml` so you can use a browser without `kubectl port-forward`.
+The Frontend Service is a NodePort (`30080` → host `8080` HTTP, `30443` → host `8443` HTTPS) in `kind/cluster.yaml`.
+
+## Security choices
+
+These are meant to show intent on a local kind Cluster, not a production PKI.
+
+| Control | Why |
+| --- | --- |
+| **Non-root (`nginx-unprivileged`, uid 101)** | Containers do not run as root; listen on 8080/8443 instead of privileged 80. |
+| **Dropped capabilities, no privilege escalation, RuntimeDefault seccomp** | Shrink the container kernel attack surface. |
+| **Read-only root filesystem + emptyDir for `/tmp`, cache, run** | The image cannot write its own layers; TLS certs and nginx scratch space go in emptyDir. |
+| **HTTPS on the Frontend** | TLS in nginx with a cert created at Pod start. No cert-manager/Let’s Encrypt: kind has no public DNS. |
+| **HTTP kept on 8080** | Reviewers can still use the site without clicking through a certificate warning. |
+| **No extra Cluster addons** | NetworkPolicy would need Calico (kindnet does not enforce it). Ingress/cert-manager would be more moving parts than this App needs. |
+
+`server_tokens off` is set in nginx so the version is not advertised.
 
 ## Website and Backend images (brief items 2–3)
 

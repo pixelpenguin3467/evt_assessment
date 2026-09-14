@@ -271,7 +271,8 @@ def up(*, use_helm: bool) -> None:
     else:
         apply_app()
     print()
-    print("Frontend: http://127.0.0.1:8080")
+    print("Frontend HTTP:  http://127.0.0.1:8080")
+    print("Frontend HTTPS: https://127.0.0.1:8443  (self-signed cert; curl -k)")
     print(f"kubectl context: {KUBE_CONTEXT}")
     if use_helm:
         print("App installed with Helm release 'evt'. Re-apply: python3 scripts/cluster.py helm")

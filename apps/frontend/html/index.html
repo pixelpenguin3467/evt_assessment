@@ -12,15 +12,15 @@
       <h1>Frontend site</h1>
       <p>
         Custom nginx image serving this page. Backend status is an HTTP GET from
-        this container to <code>http://backend/</code> (in-cluster DNS).
+        this container to <code>http://backend/</code> (in-cluster DNS), not from
+        the browser.
       </p>
     </header>
     <main>
       <section aria-labelledby="backend-heading">
         <h2 id="backend-heading">Backend</h2>
-        <p id="backend" role="status">Checking backend…</p>
+        <p id="backend" role="status"><!--# include virtual="/api/backend" --></p>
       </section>
     </main>
-    <script src="app.js"></script>
   </body>
 </html>
