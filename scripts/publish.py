@@ -12,6 +12,7 @@ IMAGES = {
     "frontend": ROOT / "apps" / "frontend",
     "backend": ROOT / "apps" / "backend",
 }
+PLATFORMS = "linux/amd64,linux/arm64"
 
 
 def run(args: list[str]) -> None:
@@ -30,7 +31,12 @@ def main() -> None:
     parser.add_argument(
         "--push",
         action="store_true",
-        help="docker push after build. Requires docker login.",
+        help="Multi-arch build (amd64+arm64) and push. Requires docker login and buildx.",
+    )
+    parser.add_argument(
+        "--platform",
+        default=PLATFORMS,
+        help=f"Platforms for --push (default {PLATFORMS})",
     )
     args = parser.parse_args()
 
@@ -39,14 +45,26 @@ def main() -> None:
     for name in names:
         local = f"evt-{name}:local"
         remote = f"{registry}/evt-{name}:{args.tag}"
-        context = IMAGES[name]
-        print(f"Building {remote} from {context}")
-        run(["docker", "build", "-t", local, "-t", remote, str(context)])
+        context = str(IMAGES[name])
         if args.push:
-            print(f"Pushing {remote}")
-            run(["docker", "push", remote])
+            print(f"Building {remote} for {args.platform} and pushing")
+            run(
+                [
+                    "docker",
+                    "buildx",
+                    "build",
+                    "--platform",
+                    args.platform,
+                    "-t",
+                    remote,
+                    "--push",
+                    context,
+                ]
+            )
         else:
-            print(f"Built {remote} (pass --push to publish)")
+            print(f"Building {local} and {remote} for this host architecture")
+            run(["docker", "build", "-t", local, "-t", remote, context])
+            print(f"Built {remote} (pass --push for linux/amd64,linux/arm64)")
 
 
 if __name__ == "__main__":

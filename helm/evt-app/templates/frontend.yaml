@@ -27,14 +27,24 @@ spec:
               name: http
             - containerPort: 8443
               name: https
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           volumeMounts:
             {{- toYaml .Values.tmpMounts | nindent 12 }}
+            - name: tls
+              mountPath: /certs
+              readOnly: true
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
       volumes:
         {{- toYaml .Values.tmpVolumes | nindent 8 }}
+        - name: tls
+          secret:
+            secretName: evt-frontend-tls
 ---
 apiVersion: v1
 kind: Service

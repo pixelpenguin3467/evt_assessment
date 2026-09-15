@@ -56,3 +56,17 @@ tmpVolumes:
     emptyDir: {}
   - name: run
     emptyDir: {}
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 2
+  periodSeconds: 5
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20

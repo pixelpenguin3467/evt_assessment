@@ -8,6 +8,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -211,28 +212,239 @@ def create_cluster() -> None:
     kubectl(["cluster-info"])
 
 
-def apply_app() -> None:
+def apply_tls_secret() -> None:
+    """Mint a demo self-signed cert on the host (no openssl in the image)."""
+    kubectl(["apply", "-f", str(ROOT / "k8s" / "00-namespace.yaml")])
+    openssl = shutil.which("openssl")
+    if not openssl:
+        die(
+            "openssl is required to create the YAML TLS secret. "
+            "Install openssl or use: python3 scripts/cluster.py helm"
+        )
+    with tempfile.TemporaryDirectory() as tmp:
+        cert = Path(tmp) / "tls.crt"
+        key = Path(tmp) / "tls.key"
+        run(
+            [
+                openssl,
+                "req",
+                "-x509",
+                "-nodes",
+                "-newkey",
+                "rsa:2048",
+                "-keyout",
+                str(key),
+                "-out",
+                str(cert),
+                "-days",
+                "365",
+                "-subj",
+                "/CN=localhost",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        manifest = subprocess.check_output(
+            [
+                "kubectl",
+                "--context",
+                KUBE_CONTEXT,
+                "create",
+                "secret",
+                "tls",
+                "evt-frontend-tls",
+                "--cert",
+                str(cert),
+                "--key",
+                str(key),
+                "--namespace",
+                "evt",
+                "--dry-run=client",
+                "-o",
+                "yaml",
+            ],
+            text=True,
+        )
+    subprocess.run(
+        ["kubectl", "--context", KUBE_CONTEXT, "apply", "-f", "-"],
+        input=manifest,
+        check=True,
+        text=True,
+    )
+
+
+def apply_app(*, local: bool) -> None:
+    require_install_mode("yaml")
+    apply_tls_secret()
     kubectl(["apply", "-f", str(ROOT / "k8s")])
-    kubectl(
-        [
-            "--namespace",
-            "evt",
-            "rollout",
-            "status",
-            "deployment/backend",
-            "--timeout=180s",
-        ]
+    if local:
+        retarget_yaml_local()
+    wait_rollout()
+    smoke_test()
+
+
+def wait_rollout() -> None:
+    for deploy in ("backend", "frontend"):
+        kubectl(
+            [
+                "--namespace",
+                "evt",
+                "rollout",
+                "status",
+                f"deployment/{deploy}",
+                "--timeout=180s",
+            ]
+        )
+
+
+def namespace_managed_by() -> str | None:
+    probe = subprocess.run(
+        ["kubectl", "--context", KUBE_CONTEXT, "get", "ns", "evt"],
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    kubectl(
+    if probe.returncode != 0:
+        return None
+    labels = subprocess.run(
         [
-            "--namespace",
+            "kubectl",
+            "--context",
+            KUBE_CONTEXT,
+            "get",
+            "ns",
             "evt",
-            "rollout",
-            "status",
-            "deployment/frontend",
-            "--timeout=180s",
-        ]
+            "-o",
+            r"jsonpath={.metadata.labels.app\.kubernetes\.io/managed-by}",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
     )
+    managed = (labels.stdout or "").strip()
+    return managed if managed else "yaml"
+
+
+def require_install_mode(mode: str) -> None:
+    managed = namespace_managed_by()
+    if managed is None:
+        return
+    if mode == "helm" and managed != "Helm":
+        die(
+            "Namespace evt already exists and is not Helm-owned (YAML install).\n"
+            "Helm will not adopt those resources.\n"
+            "Reset: python3 scripts/cluster.py down\n"
+            "  then: python3 scripts/cluster.py up --cluster-only && python3 scripts/cluster.py helm\n"
+            "Or delete only the App: kubectl --context kind-evt delete ns evt"
+        )
+    if mode == "yaml" and managed == "Helm":
+        die(
+            "Namespace evt is owned by Helm release evt.\n"
+            "Do not kubectl-apply YAML on top of it.\n"
+            "Upgrade: python3 scripts/cluster.py helm\n"
+            "Remove App: python3 scripts/cluster.py helm-down\n"
+            "Then YAML: python3 scripts/cluster.py apply"
+        )
+
+
+def build_and_load_local() -> None:
+    for name in ("backend", "frontend"):
+        tag = f"evt-{name}:local"
+        print(f"Building {tag} for this host")
+        run(["docker", "build", "-t", tag, str(ROOT / "apps" / name)])
+        run(["kind", "load", "docker-image", tag, "--name", CLUSTER])
+
+
+def retarget_yaml_local() -> None:
+    patch = (
+        '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy",'
+        '"value":"Never"}]'
+    )
+    for deploy in ("frontend", "backend"):
+        image = f"evt-{deploy}:local"
+        kubectl(
+            [
+                "--namespace",
+                "evt",
+                "set",
+                "image",
+                f"deployment/{deploy}",
+                f"{deploy}={image}",
+            ]
+        )
+        kubectl(
+            [
+                "--namespace",
+                "evt",
+                "patch",
+                "deployment",
+                deploy,
+                "--type=json",
+                "-p",
+                patch,
+            ]
+        )
+        kubectl(["--namespace", "evt", "rollout", "restart", f"deployment/{deploy}"])
+
+
+def smoke_test() -> None:
+    import time
+
+    url = "http://127.0.0.1:8080/"
+    last = "no response"
+    for _ in range(24):
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:
+                body = resp.read().decode(errors="replace")
+            if "The backend is up" in body:
+                print("Smoke check: frontend rendered backend status")
+                return
+            last = "HTTP 200 but backend status missing from HTML"
+        except Exception as exc:
+            last = str(exc)
+        time.sleep(2)
+    die(f"Smoke check failed against {url}: {last}")
+
+
+def apply_helm(*, local: bool, values_file: str | None) -> None:
+    require_install_mode("helm")
+    cmd = [
+        "helm",
+        "upgrade",
+        "--install",
+        "evt",
+        str(ROOT / "helm" / "evt-app"),
+        "--kube-context",
+        KUBE_CONTEXT,
+        "--wait",
+        "--timeout",
+        "3m",
+    ]
+    if values_file:
+        cmd.extend(["-f", values_file])
+    if local:
+        cmd.extend(
+            [
+                "--set",
+                "frontend.image=evt-frontend",
+                "--set",
+                "frontend.tag=local",
+                "--set",
+                "frontend.pullPolicy=Never",
+                "--set",
+                "backend.image=evt-backend",
+                "--set",
+                "backend.tag=local",
+                "--set",
+                "backend.pullPolicy=Never",
+            ]
+        )
+    run(cmd)
+    if local:
+        for deploy in ("frontend", "backend"):
+            kubectl(["--namespace", "evt", "rollout", "restart", f"deployment/{deploy}"])
+        wait_rollout()
+    smoke_test()
 
 
 def ensure_helm() -> None:
@@ -241,23 +453,6 @@ def ensure_helm() -> None:
     die(
         "Helm is required for this command. Install the Helm CLI: "
         "https://helm.sh/docs/intro/install/"
-    )
-
-
-def apply_helm() -> None:
-    run(
-        [
-            "helm",
-            "upgrade",
-            "--install",
-            "evt",
-            str(ROOT / "helm" / "evt-app"),
-            "--kube-context",
-            KUBE_CONTEXT,
-            "--wait",
-            "--timeout",
-            "3m",
-        ]
     )
 
 
@@ -294,26 +489,29 @@ def print_app_urls() -> None:
     print(f"kubectl context: {KUBE_CONTEXT}")
 
 
-def up(*, use_helm: bool, cluster_only: bool) -> None:
+def up(*, use_helm: bool, cluster_only: bool, local: bool, values_file: str | None) -> None:
     ensure_engine()
     ensure_kind()
     ensure_kubectl()
     if use_helm:
         ensure_helm()
     create_cluster()
+    if local and not cluster_only:
+        build_and_load_local()
     if cluster_only:
         print()
         print(f"Cluster {CLUSTER} is ready (no App).")
         print(f"kubectl context: {KUBE_CONTEXT}")
         print("Install App:  python3 scripts/cluster.py helm")
         print("             python3 scripts/cluster.py apply")
+        print("             python3 scripts/cluster.py helm --local   # Apple Silicon / local source")
         print("Remove App:   python3 scripts/cluster.py helm-down")
         print("Remove Cluster: python3 scripts/cluster.py down")
         return
     if use_helm:
-        apply_helm()
+        apply_helm(local=local, values_file=values_file)
     else:
-        apply_app()
+        apply_app(local=local)
     print_app_urls()
     if use_helm:
         print("App installed with Helm release 'evt'. Re-apply: python3 scripts/cluster.py helm")
@@ -339,21 +537,26 @@ def status() -> None:
     kubectl(["--namespace", "evt", "get", "pods,svc"])
 
 
-def apply() -> None:
+def apply(*, local: bool) -> None:
     ensure_kind()
     ensure_kubectl()
     require_cluster()
     export_kubeconfig()
-    apply_app()
+    if local:
+        build_and_load_local()
+    apply_app(local=local)
+    print_app_urls()
 
 
-def helm_cmd() -> None:
+def helm_cmd(*, local: bool, values_file: str | None) -> None:
     ensure_kind()
     ensure_kubectl()
     ensure_helm()
     require_cluster()
     export_kubeconfig()
-    apply_helm()
+    if local:
+        build_and_load_local()
+    apply_helm(local=local, values_file=values_file)
     print_app_urls()
 
 
@@ -370,26 +573,37 @@ def helm_down() -> None:
 
 
 def main() -> None:
-    args = sys.argv[1:]
+    raw = sys.argv[1:]
+    local = "--local" in raw
+    args = [a for a in raw if a != "--local"]
+    values_file = None
+    if "--values" in args:
+        i = args.index("--values")
+        if i + 1 >= len(args):
+            die("--values requires a file path")
+        values_file = args[i + 1]
+        args = args[:i] + args[i + 2 :]
+
     if args == ["up"]:
-        up(use_helm=False, cluster_only=False)
+        up(use_helm=False, cluster_only=False, local=local, values_file=values_file)
     elif args == ["up", "--helm"]:
-        up(use_helm=True, cluster_only=False)
+        up(use_helm=True, cluster_only=False, local=local, values_file=values_file)
     elif args == ["up", "--cluster-only"]:
-        up(use_helm=False, cluster_only=True)
+        up(use_helm=False, cluster_only=True, local=False, values_file=None)
     elif args == ["down"]:
         down()
     elif args == ["status"]:
         status()
     elif args == ["apply"]:
-        apply()
+        apply(local=local)
     elif args == ["helm"]:
-        helm_cmd()
+        helm_cmd(local=local, values_file=values_file)
     elif args == ["helm-down"]:
         helm_down()
     else:
         die(
-            f"Usage: {sys.argv[0]} <up [--helm|--cluster-only]|down|status|apply|helm|helm-down>"
+            f"Usage: {sys.argv[0]} <up [--helm|--cluster-only] [--local]|down|status|"
+            "apply [--local]|helm [--local] [--values FILE]|helm-down>"
         )
 
 

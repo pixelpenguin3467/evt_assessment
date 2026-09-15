@@ -30,6 +30,18 @@ spec:
               name: http
             - containerPort: 8443
               name: https
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -42,6 +54,9 @@ spec:
               mountPath: /var/cache/nginx
             - name: run
               mountPath: /var/run
+            - name: tls
+              mountPath: /certs
+              readOnly: true
           resources:
             requests:
               cpu: 25m
@@ -56,6 +71,9 @@ spec:
           emptyDir: {}
         - name: run
           emptyDir: {}
+        - name: tls
+          secret:
+            secretName: evt-frontend-tls
 ---
 apiVersion: v1
 kind: Service

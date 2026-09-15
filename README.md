@@ -25,10 +25,10 @@ That will:
 
 1. Check Docker; download kind and kubectl into `.tools/` if missing
 2. Create a kind Cluster named `evt` (or reuse it if it already exists)
-3. Apply the App manifests; the node **pulls** the public Hub images
-4. Print `http://127.0.0.1:8080` (HTTP) and `https://127.0.0.1:8443` (HTTPS, self-signed)
+3. Apply the App manifests; the node **pulls** the public Hub images (`linux/amd64` and `linux/arm64` after a multi-arch publish)
+4. Wait until HTTP readiness probes pass, then smoke-check that the Frontend HTML contains `The backend is up`
 
-Open the HTTP URL for the easy path. HTTPS uses a **self-signed** cert generated in the Frontend Pod at start (no private key in git or the image). Browsers warning on the self-signed cert for `https://127.0.0.1:8443` is expected. Backend status is filled in by nginx (SSI) with an HTTP GET to `http://backend/` in-cluster — not a browser `fetch`, which fails on some browsers against a self-signed origin.
+Open the HTTP URL for the easy path. HTTPS uses a **self-signed** cert: YAML install mints a Secret with host `openssl`; Helm uses `genSignedCert`. No private key is in git or the image. Browsers warning on `https://127.0.0.1:8443` is expected. Backend status is filled in by nginx (SSI) with an HTTP GET to `http://backend/` in-cluster — not a browser `fetch`, which fails on some browsers against a self-signed origin.
 
 kubeconfig is merged into the default file (`~/.kube/config`) as context `kind-evt` automatically during an `up`:
 
@@ -85,16 +85,24 @@ Deploy Cluster + Helm in one step:
 python3 scripts/cluster.py up --helm
 ```
 
-On an existing Cluster:
+On an existing Cluster, **do not mix YAML and Helm**. `apply` and `helm` refuse the other mode if namespace `evt` already exists.
 
 ```bash
-python3 scripts/cluster.py apply   # YAML
-python3 scripts/cluster.py helm    # Helm release "evt"
+python3 scripts/cluster.py apply   # YAML (fails if Helm owns evt)
+python3 scripts/cluster.py helm    # Helm (fails if YAML owns evt)
+python3 scripts/cluster.py helm --values my-values.yaml
+python3 scripts/cluster.py helm --local   # native docker build + kind load
 ```
 
-Or by hand: `helm upgrade --install evt ./helm/evt-app --wait`
+For any host whose public Hub images do not match the node arch yet:
 
-Frontend and Backend set CPU/memory **requests** (25m / 32Mi) and **limits** (100m / 64Mi).
+```bash
+python3 scripts/cluster.py up --local
+```
+
+That builds `evt-frontend:local` / `evt-backend:local` for this machine, loads them into kind, and sets `imagePullPolicy: Never`. Use `--local` again after source edits so images are rebuilt and Pods restarted.
+
+Frontend and Backend set CPU/memory **requests** (25m / 32Mi) and **limits** (100m / 64Mi), plus HTTP readiness/liveness probes on `/`.
 
 ## What is included
 
@@ -116,7 +124,7 @@ The Frontend Service is a NodePort (`30080` → host `8080` HTTP, `30443` → ho
 | **Non-root (`nginx-unprivileged`, uid 101)** | Containers do not run as root; listen on 8080/8443 instead of privileged 80. |
 | **Dropped capabilities, no privilege escalation, RuntimeDefault seccomp** | Shrink the container kernel attack surface. |
 | **Read-only root filesystem + emptyDir for `/tmp`, cache, run** | The image cannot write its own layers; TLS certs and nginx scratch space go in emptyDir. |
-| **HTTPS on the Frontend** | TLS in nginx with a cert created at Pod start. No cert-manager/Let’s Encrypt: kind has no public DNS. |
+| **HTTPS on the Frontend** | TLS in nginx from Secret `evt-frontend-tls`. No cert-manager. Image has no openssl (keeps multi-arch builds as FROM+COPY). |
 | **HTTP kept on 8080** | Reviewers can still use the site without clicking through a certificate warning. |
 | **No extra Cluster addons** | NetworkPolicy would need Calico (kindnet does not enforce it). Ingress/cert-manager would be more moving parts than this App needs. |
 
@@ -136,14 +144,18 @@ docker pull docker.io/pixelpenguin31/evt-frontend:latest
 docker pull docker.io/pixelpenguin31/evt-backend:latest
 ```
 
-Deploy applies those images (`imagePullPolicy: Always`). Kind pulls from Hub; it does not `kind load` a local build. The node needs network to Docker Hub.
+Deploy applies those images (`imagePullPolicy: Always`). Kind pulls from Hub unless you pass `--local`. Published tags should include **linux/amd64 and linux/arm64**.
+```bash
+python3 scripts/publish.py all --registry docker.io/pixelpenguin31 --push
+```
 
-Tooling to publish own images for use with this package is available with:
+That uses `docker buildx` for both platforms. Confirm with:
 
 ```bash
-python3 scripts/publish.py all --registry docker.io/USERNAME --push
+docker buildx imagetools inspect docker.io/pixelpenguin31/evt-frontend:latest
 ```
-Substitue USERNAME with your own Docker Hub user
+
+You should see `linux/amd64` and `linux/arm64` (ignore `unknown/unknown` attestation entries).
 
 ## Layout
 
@@ -156,8 +168,8 @@ kind/           kind Cluster config
 scripts/        Stamp-out (`cluster.py`) and Publish (`publish.py`)
 ```
 
-Images in YAML/Helm are `docker.io/pixelpenguin31/evt-frontend:latest` and `docker.io/pixelpenguin31/evt-backend:latest` (`imagePullPolicy: Always`). `scripts/publish.py` rebuilds and pushes those tags.
+Images in YAML/Helm are `docker.io/pixelpenguin31/evt-frontend:latest` and `docker.io/pixelpenguin31/evt-backend:latest` (`imagePullPolicy: Always`).
 
 ## Repeatability
 
-`up` is safe to run more than once: existing Cluster is reused, images are rebuilt and reloaded, manifests are applied. `down` then `up` is a clean stamp-out from scratch.
+`up` reuses an existing Cluster and re-applies manifests. It does **not** rebuild Hub images. After changing `apps/`, either `publish.py --push` (then delete/recreate Pods, or `down`/`up`) or `python3 scripts/cluster.py up --local`. `down` then `up` is a clean Cluster from scratch. Host ports 8080/8443 bind to `127.0.0.1`; recreate the Cluster if you created it before that mapping existed.
