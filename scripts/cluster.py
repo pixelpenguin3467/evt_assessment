@@ -252,6 +252,8 @@ def apply_helm() -> None:
             "--install",
             "evt",
             str(ROOT / "helm" / "evt-app"),
+            "--kube-context",
+            KUBE_CONTEXT,
             "--wait",
             "--timeout",
             "3m",
@@ -259,23 +261,63 @@ def apply_helm() -> None:
     )
 
 
-def up(*, use_helm: bool) -> None:
+def uninstall_helm() -> None:
+    result = subprocess.run(
+        [
+            "helm",
+            "uninstall",
+            "evt",
+            "--kube-context",
+            KUBE_CONTEXT,
+            "--wait",
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        if result.stdout:
+            print(result.stdout.strip())
+        return
+    err = (result.stderr or result.stdout or "")
+    if "not found" in err.lower():
+        print("Helm release 'evt' is not installed.")
+        return
+    print(err, file=sys.stderr, end="")
+    die("helm uninstall failed")
+
+
+def print_app_urls() -> None:
+    print()
+    print("Frontend HTTP:  http://127.0.0.1:8080")
+    print("Frontend HTTPS: https://127.0.0.1:8443  (self-signed cert; curl -k)")
+    print(f"kubectl context: {KUBE_CONTEXT}")
+
+
+def up(*, use_helm: bool, cluster_only: bool) -> None:
     ensure_engine()
     ensure_kind()
     ensure_kubectl()
     if use_helm:
         ensure_helm()
     create_cluster()
+    if cluster_only:
+        print()
+        print(f"Cluster {CLUSTER} is ready (no App).")
+        print(f"kubectl context: {KUBE_CONTEXT}")
+        print("Install App:  python3 scripts/cluster.py helm")
+        print("             python3 scripts/cluster.py apply")
+        print("Remove App:   python3 scripts/cluster.py helm-down")
+        print("Remove Cluster: python3 scripts/cluster.py down")
+        return
     if use_helm:
         apply_helm()
     else:
         apply_app()
-    print()
-    print("Frontend HTTP:  http://127.0.0.1:8080")
-    print("Frontend HTTPS: https://127.0.0.1:8443  (self-signed cert; curl -k)")
-    print(f"kubectl context: {KUBE_CONTEXT}")
+    print_app_urls()
     if use_helm:
         print("App installed with Helm release 'evt'. Re-apply: python3 scripts/cluster.py helm")
+        print("Remove App only: python3 scripts/cluster.py helm-down")
     else:
         print(f"Re-apply manifests: kubectl --context {KUBE_CONTEXT} apply -f k8s")
 
@@ -312,14 +354,29 @@ def helm_cmd() -> None:
     require_cluster()
     export_kubeconfig()
     apply_helm()
+    print_app_urls()
+
+
+def helm_down() -> None:
+    ensure_kind()
+    ensure_kubectl()
+    ensure_helm()
+    require_cluster()
+    export_kubeconfig()
+    uninstall_helm()
+    print("Helm release 'evt' removed. Cluster is still running.")
+    print("Re-install: python3 scripts/cluster.py helm")
+    print("Tear down Cluster: python3 scripts/cluster.py down")
 
 
 def main() -> None:
     args = sys.argv[1:]
     if args == ["up"]:
-        up(use_helm=False)
+        up(use_helm=False, cluster_only=False)
     elif args == ["up", "--helm"]:
-        up(use_helm=True)
+        up(use_helm=True, cluster_only=False)
+    elif args == ["up", "--cluster-only"]:
+        up(use_helm=False, cluster_only=True)
     elif args == ["down"]:
         down()
     elif args == ["status"]:
@@ -328,8 +385,12 @@ def main() -> None:
         apply()
     elif args == ["helm"]:
         helm_cmd()
+    elif args == ["helm-down"]:
+        helm_down()
     else:
-        die(f"Usage: {sys.argv[0]} <up [--helm]|down|status|apply|helm>")
+        die(
+            f"Usage: {sys.argv[0]} <up [--helm|--cluster-only]|down|status|apply|helm|helm-down>"
+        )
 
 
 if __name__ == "__main__":

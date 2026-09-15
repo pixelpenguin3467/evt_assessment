@@ -102,13 +102,22 @@ python3 scripts/publish.py all --registry docker.io/pixelpenguin31 --push
 
 YAML (`k8s/`) is the default App install. Helm (`helm/evt-app`) is the extra path. **Use one or the other**, not both, on the same Cluster.
 
-Stamp-out with YAML:
+Cluster only (no App), then Helm on top:
+
+```bash
+python3 scripts/cluster.py up --cluster-only
+python3 scripts/cluster.py helm        # install / upgrade release evt
+python3 scripts/cluster.py helm-down   # uninstall App; Cluster stays
+python3 scripts/cluster.py down        # delete the kind Cluster
+```
+
+Stamp-out Cluster + YAML in one step:
 
 ```bash
 python3 scripts/cluster.py up
 ```
 
-Stamp-out with Helm (Helm CLI required):
+Stamp-out Cluster + Helm in one step:
 
 ```bash
 python3 scripts/cluster.py up --helm
