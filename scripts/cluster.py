@@ -36,6 +36,11 @@ def os_arch() -> tuple[str, str]:
         "aarch64": "arm64",
         "arm64": "arm64",
     }.get(machine)
+    if machine in {"armv7l", "armv6l", "arm"}:
+        die(
+            "32-bit ARM is not supported. Use 64-bit Raspberry Pi OS (aarch64) "
+            "so kind and the published linux/arm64 images can run."
+        )
     if not os_name or not arch:
         die(f"Unsupported platform: {system} {machine}")
     return os_name, arch
@@ -133,6 +138,68 @@ def docker_permission_hint() -> str:
     return "\n".join(lines)
 
 
+def linux_memory_cgroup_enabled() -> bool:
+    """kind's kubelet cannot start the API server without a memory cgroup."""
+    controllers = Path("/sys/fs/cgroup/cgroup.controllers")
+    if controllers.is_file():
+        try:
+            return "memory" in controllers.read_text().split()
+        except OSError:
+            return True
+    proc_cgroups = Path("/proc/cgroups")
+    if proc_cgroups.is_file():
+        try:
+            for line in proc_cgroups.read_text().splitlines():
+                parts = line.split()
+                if len(parts) >= 4 and parts[0] == "memory":
+                    return parts[3] != "0"
+        except OSError:
+            return True
+    return True
+
+
+def raspberry_cmdline_path() -> str:
+    for path in ("/boot/firmware/cmdline.txt", "/boot/cmdline.txt"):
+        if Path(path).exists():
+            return path
+    return "/boot/firmware/cmdline.txt"
+
+
+def memory_cgroup_fix() -> str:
+    return (
+        "kind cannot start Kubernetes unless the kernel memory cgroup is enabled.\n"
+        "Raspberry Pi OS leaves it off by default, so kube-apiserver never binds :6443 "
+        "(connection refused during kubeadm init).\n"
+        f"Append to the single line in {raspberry_cmdline_path()}, then reboot:\n"
+        "  cgroup_enable=memory cgroup_memory=1\n"
+        "After reboot this should include the word memory:\n"
+        "  cat /sys/fs/cgroup/cgroup.controllers"
+    )
+
+
+def require_kind_host() -> None:
+    if OS_NAME != "linux":
+        return
+    if not linux_memory_cgroup_enabled():
+        die(memory_cgroup_fix())
+
+
+def kind_create_failure_hint() -> str:
+    lines = [
+        "kind failed while starting the control plane "
+        "(kube-apiserver never accepted connections on :6443)."
+    ]
+    if not linux_memory_cgroup_enabled():
+        lines.append(memory_cgroup_fix())
+    else:
+        lines.append(
+            "On a Raspberry Pi this is often missing memory cgroups "
+            f"(see {raspberry_cmdline_path()}) or the node OOM-killing kube-apiserver. "
+            "Use a 64-bit OS and at least 4 GB RAM for kind plus this app."
+        )
+    return "\n".join(lines)
+
+
 def ensure_engine() -> None:
     if not shutil.which("docker"):
         extra = ""
@@ -199,15 +266,20 @@ def create_cluster() -> None:
     if CLUSTER in kind_clusters():
         print(f"Cluster {CLUSTER} already exists.")
     else:
-        run(
+        require_kind_host()
+        created = subprocess.run(
             [
                 "kind",
                 "create",
                 "cluster",
                 "--config",
                 str(ROOT / "kind" / "cluster.yaml"),
-            ]
+            ],
+            check=False,
+            text=True,
         )
+        if created.returncode != 0:
+            die(kind_create_failure_hint())
     export_kubeconfig()
     kubectl(["cluster-info"])
 

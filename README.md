@@ -10,6 +10,8 @@ Creates a local Kubernetes cluster with **kind**, install a small Frontend and B
 
 On Windows, ensure virtualization is properly enabled along with WSL2, have Docker Desktop installed with engine running and run the same commands from PowerShell, cmd, or WSL.
 
+On a Raspberry Pi, kind needs the kernel **memory cgroup**. Raspberry Pi OS disables it by default; `up` then fails at “Starting control-plane” with `connection refused` on `:6443`. Append `cgroup_enable=memory cgroup_memory=1` to the single line in `/boot/firmware/cmdline.txt` (or `/boot/cmdline.txt`), reboot, and confirm `cat /sys/fs/cgroup/cgroup.controllers` includes `memory`. Use 64-bit Raspberry Pi OS and preferably 4 GB+ RAM.
+
 ## Quick-Start
 
 ```bash
