@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stamp-out and teardown for the local kind Cluster."""
+"""Deploy and teardown for the local kind Cluster."""
 from __future__ import annotations
 
 import os
@@ -90,7 +90,7 @@ def docker_permission_hint() -> str:
     """Advise how to get socket access. Group membership is a Linux Engine thing."""
     lines = [
         "Docker is running but this user cannot use the daemon socket.",
-        "Do not use sudo for stamp-out or kubectl — that writes kubeconfig as root.",
+        "Do not use sudo for deployment or kubectl — that writes kubeconfig as root.",
     ]
     if OS_NAME == "linux":
         try:
@@ -100,7 +100,7 @@ def docker_permission_hint() -> str:
         except KeyError:
             lines.append(
                 "There is no 'docker' group. Install Docker Engine for this distro, "
-                "then add your user to the group it documents."
+                "then add your user to the group."
             )
         except Exception:
             lines.append(
