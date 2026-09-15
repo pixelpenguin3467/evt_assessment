@@ -53,6 +53,11 @@ py scripts\cluster.py status
 python3 scripts/cluster.py down
 ```
 
+Windows: 
+```bash
+py scripts\cluster.py down
+```
+
 Deletes the app containers, kind Cluster and its kubeconfig context.
 
 ## Additional Install Options
